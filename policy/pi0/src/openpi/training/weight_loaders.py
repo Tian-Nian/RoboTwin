@@ -15,7 +15,6 @@ logger = logging.getLogger(__name__)
 
 @runtime_checkable
 class WeightLoader(Protocol):
-
     def load(self, params: at.Params) -> at.Params:
         """Loads the model weights.
 
@@ -31,7 +30,6 @@ class WeightLoader(Protocol):
 
 @dataclasses.dataclass(frozen=True)
 class NoOpWeightLoader(WeightLoader):
-
     def load(self, params: at.Params) -> at.Params:
         return params
 
@@ -44,7 +42,7 @@ class CheckpointWeightLoader(WeightLoader):
       trained checkpoints:
         example: "./checkpoints/<config>/<exp>/<step>/params"
       released checkpoints:
-        example: "s3://openpi-assets/checkpoints/<model>/params"
+        example: "gs://openpi-assets/checkpoints/<model>/params"
     """
 
     params_path: str
@@ -66,8 +64,7 @@ class PaliGemmaWeightLoader(WeightLoader):
 
     def load(self, params: at.Params) -> at.Params:
         path = download.maybe_download(
-            "gs://vertex-model-garden-paligemma-us/paligemma/pt_224.npz",
-            gs={"token": "anon"},
+            "gs://vertex-model-garden-paligemma-us/paligemma/pt_224.npz", gs={"token": "anon"}
         )
         with path.open("rb") as f:
             flat_params = dict(np.load(f, allow_pickle=False))
@@ -94,7 +91,9 @@ def _merge_params(loaded_params: at.Params, params: at.Params, *, missing_regex:
     result = {}
     for k, v in flat_loaded.items():
         if k in flat_ref:
-            result[k] = v.astype(flat_ref[k].dtype)
+            result[k] = v.astype(flat_ref[k].dtype) if v.dtype != flat_ref[k].dtype else v
+
+    flat_loaded.clear()
 
     # Then, merge any missing weights as defined by the missing regex.
     pattern = re.compile(missing_regex)

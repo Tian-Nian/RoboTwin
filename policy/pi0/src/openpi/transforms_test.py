@@ -6,12 +6,12 @@ import openpi.transforms as _transforms
 
 
 def test_repack_transform():
-    transform = _transforms.RepackTransform(structure={
-        "a": {
-            "b": "b/c"
-        },
-        "d": "e/f",
-    })
+    transform = _transforms.RepackTransform(
+        structure={
+            "a": {"b": "b/c"},
+            "d": "e/f",
+        }
+    )
     item = {"b": {"c": 1}, "e": {"f": 2}}
     assert transform(item) == {"a": {"b": 1}, "d": 2}
 
@@ -63,14 +63,7 @@ def test_absolute_actions_noop():
 
 
 def test_make_bool_mask():
-    assert _transforms.make_bool_mask(2, -2, 2) == (
-        True,
-        True,
-        False,
-        False,
-        True,
-        True,
-    )
+    assert _transforms.make_bool_mask(2, -2, 2) == (True, True, False, False, True, True)
     assert _transforms.make_bool_mask(2, 0, 2) == (True, True, True, True)
 
 

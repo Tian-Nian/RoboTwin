@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """
 Gemma model implementation from big_vision/models/ppp/gemma.py (with small modifications for NNX compatibility)
 Used for FAST autoregressive policies.
@@ -34,37 +35,41 @@ Variant = Literal["gemma_2b", "gemma_2b_lora"]
 def get_config(variant):
     """Returns config for specified gemma variant."""
     if variant == "gemma_2b":
-        return ml_collections.ConfigDict({
-            "variant": variant,
-            "width": 2048,
-            "depth": 18,
-            "mlp_dim": 16_384,
-            "num_heads": 8,
-            "num_kv_heads": 1,
-            "head_dim": 256,
-            "norm_eps": 1e-6,
-            "vocab_size": 257_152,
-            "scan": True,
-            "remat_policy": "nothing_saveable",
-        })
+        return ml_collections.ConfigDict(
+            {
+                "variant": variant,
+                "width": 2048,
+                "depth": 18,
+                "mlp_dim": 16_384,
+                "num_heads": 8,
+                "num_kv_heads": 1,
+                "head_dim": 256,
+                "norm_eps": 1e-6,
+                "vocab_size": 257_152,
+                "scan": True,
+                "remat_policy": "nothing_saveable",
+            }
+        )
     if variant == "gemma_2b_lora":
-        return ml_collections.ConfigDict({
-            "variant": variant,
-            "width": 2048,
-            "depth": 18,
-            "mlp_dim": 16_384,
-            "num_heads": 8,
-            "num_kv_heads": 1,
-            "head_dim": 256,
-            "norm_eps": 1e-6,
-            "vocab_size": 257_152,
-            "scan": True,
-            "remat_policy": "nothing_saveable",
-            "lora_configs": {
-                "attn": lora.LoRAConfig(rank=16, alpha=16.0),
-                "ffn": lora.LoRAConfig(rank=16, alpha=16.0),
-            },
-        })
+        return ml_collections.ConfigDict(
+            {
+                "variant": variant,
+                "width": 2048,
+                "depth": 18,
+                "mlp_dim": 16_384,
+                "num_heads": 8,
+                "num_kv_heads": 1,
+                "head_dim": 256,
+                "norm_eps": 1e-6,
+                "vocab_size": 257_152,
+                "scan": True,
+                "remat_policy": "nothing_saveable",
+                "lora_configs": {
+                    "attn": lora.LoRAConfig(rank=16, alpha=16.0),
+                    "ffn": lora.LoRAConfig(rank=16, alpha=16.0),
+                },
+            }
+        )
     raise ValueError(f"Unknown variant: {variant}")
 
 
@@ -81,15 +86,15 @@ class Einsum(nn.Module):
 
 @at.typecheck
 class RMSNorm(nn.Module):
-
     @nn.compact
     def __call__(self, x):
         dtype = x.dtype  # original dtype, could be half-precision
         scale = self.param("scale", nn.initializers.zeros_init(), (x.shape[-1]))
         var = jnp.mean(jnp.square(x.astype(jnp.float32)), axis=-1, keepdims=True)  # compute variance in float32
         normed_inputs = jnp.asarray(x * jnp.reciprocal(jnp.sqrt(var + 1e-06)))  # compute normalization in float32
-        normed_inputs = normed_inputs * (1 + scale
-                                         )  # scale by learned parameter in float32 (matches Flax implementation)
+        normed_inputs = normed_inputs * (
+            1 + scale
+        )  # scale by learned parameter in float32 (matches Flax implementation)
         return normed_inputs.astype(dtype)  # return in original dtype
 
 
@@ -108,7 +113,7 @@ class Embedder(nn.Module):
         )
 
     def encode(self, x):
-        x = self.input_embedding_table[(x, )]
+        x = self.input_embedding_table[(x,)]
         x *= jnp.sqrt(self.embed_dim).astype(x.dtype)
         return x
 
@@ -141,7 +146,7 @@ class Attention(nn.Module):
             self.q_einsum = lora.Einsum(
                 shape=(self.num_heads, self.features, self.head_dim),
                 name="q_einsum",
-                init_fn=nn.initializers.lecun_normal(in_axis=-2, out_axis=-1, batch_axis=(0, )),
+                init_fn=nn.initializers.lecun_normal(in_axis=-2, out_axis=-1, batch_axis=(0,)),
                 lora_config=self.lora_config,
             )
             self.kv_einsum = lora.Einsum(
@@ -153,7 +158,7 @@ class Attention(nn.Module):
         self.attn_vec_einsum = lora.Einsum(
             shape=(self.num_heads, self.head_dim, self.features),
             name="attn_vec_einsum",
-            init_fn=nn.initializers.lecun_normal(in_axis=-2, out_axis=-1, batch_axis=(0, )),
+            init_fn=nn.initializers.lecun_normal(in_axis=-2, out_axis=-1, batch_axis=(0,)),
             lora_config=self.lora_config,
         )
 
@@ -164,7 +169,7 @@ class Attention(nn.Module):
         cache_dtype = self.cache_dtype or k.dtype
         k_cache = jnp.pad(k.astype(cache_dtype), pad_width)
         v_cache = jnp.pad(v.astype(cache_dtype), pad_width)
-        idx = jnp.zeros((k.shape[0], ), dtype=jnp.int32) + prefill_len
+        idx = jnp.zeros((k.shape[0],), dtype=jnp.int32) + prefill_len
         return idx, k_cache, v_cache
 
     def _update_cache(self, k, v, idx, k_cache, v_cache):
@@ -205,7 +210,8 @@ class Attention(nn.Module):
 
         if attn_mask.shape != (q.shape[0], 1, q.shape[1], k.shape[1]):
             raise ValueError(
-                f"Attention mask with shape {attn_mask.shape} but shapes for q and k are: {q.shape} and {k.shape}")
+                f"Attention mask with shape {attn_mask.shape} but shapes for q and k are: {q.shape} and {k.shape}"
+            )
 
         # big_neg = jnp.finfo(logits.dtype).min
         big_neg = -2.3819763e38  # See gemma/modules.py
@@ -244,10 +250,9 @@ class Block(nn.Module):
             lora_config=self.lora_configs.get("attn"),
         )
         self.pre_ffw_norm = RMSNorm()
-        self.mlp = lora.FeedForward(features=self.embed_dim,
-                                    hidden_dim=self.hidden_dim,
-                                    name="mlp",
-                                    lora_config=self.lora_configs.get("ffn"))
+        self.mlp = lora.FeedForward(
+            features=self.embed_dim, hidden_dim=self.hidden_dim, name="mlp", lora_config=self.lora_configs.get("ffn")
+        )
         if self.dropout:
             self.drop = nn.Dropout(self.dropout, self.dropout_bdims)
         else:
@@ -296,17 +301,17 @@ class Module(nn.Module):
 
     @nn.compact
     def __call__(
-            self,
-            tokens=None,
-            embedded_prefix=None,
-            embed_only=False,  # noqa: FBT002
-            pre_logits=None,
-            positions=None,
-            mask=None,
-            decode=False,  # noqa: FBT002
-            kv_cache=None,
-            deterministic=True,  # noqa: FBT002
-            return_prelogits=False,  # noqa: FBT002
+        self,
+        tokens=None,
+        embedded_prefix=None,
+        embed_only=False,  # noqa: FBT002
+        pre_logits=None,
+        positions=None,
+        mask=None,
+        decode=False,  # noqa: FBT002
+        kv_cache=None,
+        deterministic=True,  # noqa: FBT002
+        return_prelogits=False,  # noqa: FBT002
     ):
         """Embed only, or complete forward pass.
 
@@ -351,7 +356,8 @@ class Module(nn.Module):
 
         if decode:
             assert positions is not None and mask is not None, (  # noqa: PT018
-                "Must explicitly pass positions and mask for decoding.")
+                "Must explicitly pass positions and mask for decoding."
+            )
 
         if positions is None:
             positions = jnp.arange(seq_len).astype(jnp.int32)[None, :]
@@ -390,10 +396,7 @@ class Module(nn.Module):
             nn.scan(
                 block_cls,
                 variable_axes={"params": 0},
-                split_rngs={
-                    "params": True,
-                    "dropout": True
-                },
+                split_rngs={"params": True, "dropout": True},
                 in_axes=(0, nn.broadcast, nn.broadcast, nn.broadcast, nn.broadcast),  # 0=kv_cache, 1=positions, 2=mask
                 length=self.depth,
             )(parent=layers, **block_kw)

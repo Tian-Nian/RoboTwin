@@ -96,7 +96,7 @@ class FeedForward(nn.Module):
     def setup(self):
         self.w_gating = self.param(
             "gating_einsum",
-            nn.initializers.lecun_normal(in_axis=-2, out_axis=-1, batch_axis=(0, )),
+            nn.initializers.lecun_normal(in_axis=-2, out_axis=-1, batch_axis=(0,)),
             (2, self.features, self.hidden_dim),
         )
         self.w_linear = self.param(
@@ -111,8 +111,9 @@ class FeedForward(nn.Module):
             # TODO: follow up with a simplified init_fn api.
             self.w_gating_lora = (
                 self.param("gating_einsum_lora_a", self.lora_config.init_fn, (2, self.features, self.lora_config.rank)),
-                self.param("gating_einsum_lora_b", self.lora_config.init_fn,
-                           (2, self.lora_config.rank, self.hidden_dim)),
+                self.param(
+                    "gating_einsum_lora_b", self.lora_config.init_fn, (2, self.lora_config.rank, self.hidden_dim)
+                ),
             )
             self.w_linear_lora = (
                 self.param("linear_lora_a", self.lora_config.init_fn, (self.hidden_dim, self.lora_config.rank)),

@@ -1,5 +1,6 @@
 import dataclasses
 import logging
+from typing import Any
 
 import einops
 import flax.nnx as nnx
@@ -82,6 +83,11 @@ class Pi0FASTConfig(_model.BaseModelConfig):
     action_horizon: int = 32
     max_token_len: int = 250
 
+    # Tokenizer for the fast model.
+    fast_model_tokenizer: Any | None = None
+    # Keyword arguments for the fast model tokenizer.
+    fast_model_tokenizer_kwargs: dict[str, Any] | None = None
+
     @property
     @override
     def model_type(self) -> _model.ModelType:
@@ -126,16 +132,17 @@ class Pi0FASTConfig(_model.BaseModelConfig):
 
 
 class Pi0FAST(_model.BaseModel):
-
     def __init__(self, config: Pi0FASTConfig, rngs: nnx.Rngs):
         super().__init__(config.action_dim, config.action_horizon, config.max_token_len)
         paligemma_config = _gemma.get_config(config.paligemma_variant)
         # TODO: rewrite gemma in NNX. For now, use bridge.
-        llm = nnx_bridge.ToNNX(_gemma.Module(
-            **paligemma_config,
-            embed_dtype=config.dtype,
-            cache_dtype=config.dtype,
-        ))
+        llm = nnx_bridge.ToNNX(
+            _gemma.Module(
+                **paligemma_config,
+                embed_dtype=config.dtype,
+                cache_dtype=config.dtype,
+            )
+        )
         llm.lazy_init(rngs=rngs, method="init")
         img = nnx_bridge.ToNNX(
             _siglip.Module(
@@ -144,7 +151,8 @@ class Pi0FAST(_model.BaseModel):
                 pool_type="none",
                 scan=True,
                 dtype_mm=config.dtype,
-            ))
+            )
+        )
         img.lazy_init(next(iter(config.fake_obs().images.values())), train=False, rngs=rngs)
         self.PaliGemma = nnx.Dict(llm=llm, img=img)
 
@@ -160,11 +168,13 @@ class Pi0FAST(_model.BaseModel):
             image_token_embeddings, _ = self.PaliGemma.img(obs.images[name], train=False)
 
             token_embeddings.append(image_token_embeddings)
-            input_mask.append(einops.repeat(
-                obs.image_masks[name],
-                "b -> b s",
-                s=image_token_embeddings.shape[1],
-            ))
+            input_mask.append(
+                einops.repeat(
+                    obs.image_masks[name],
+                    "b -> b s",
+                    s=image_token_embeddings.shape[1],
+                )
+            )
             # image tokens attend to each other --> AR mask = 0
             ar_mask.append(0 * input_mask[-1])
 
@@ -185,16 +195,12 @@ class Pi0FAST(_model.BaseModel):
         )
 
     @override
-    def compute_loss(self,
-                     rng: at.KeyArrayLike,
-                     observation: _model.Observation,
-                     actions: _model.Actions,
-                     *,
-                     train: bool = False) -> at.Float[at.Array, "*b ah"]:
-        observation = _model.preprocess_observation(rng,
-                                                    observation,
-                                                    train=train,
-                                                    image_keys=list(observation.images.keys()))
+    def compute_loss(
+        self, rng: at.KeyArrayLike, observation: _model.Observation, actions: _model.Actions, *, train: bool = False
+    ) -> at.Float[at.Array, "*b ah"]:
+        observation = _model.preprocess_observation(
+            rng, observation, train=train, image_keys=list(observation.images.keys())
+        )
 
         # Compute inputs: one big forward pass of prefix + suffix at once
         input_token_embeddings, input_mask, ar_mask = self.embed_inputs(observation)
@@ -215,7 +221,9 @@ class Pi0FAST(_model.BaseModel):
 
         # Only decode logits for the target tokens to save memory
         # (decoding matmul is large because it is a seq_len x vocab_size dense layer).
-        logits, _ = self.PaliGemma.llm(pre_logits=pre_logits[:, -targets.shape[1]:], )
+        logits, _ = self.PaliGemma.llm(
+            pre_logits=pre_logits[:, -targets.shape[1] :],
+        )
         logp = jax.nn.log_softmax(logits, axis=-1)
 
         # Compute CE loss on token targets
@@ -234,10 +242,9 @@ class Pi0FAST(_model.BaseModel):
         temperature: float = 0.0,
     ) -> _model.Actions:
         # TODO: this is a hack to get the image keys.
-        observation = _model.preprocess_observation(None,
-                                                    observation,
-                                                    train=False,
-                                                    image_keys=list(observation.images.keys()))
+        observation = _model.preprocess_observation(
+            None, observation, train=False, image_keys=list(observation.images.keys())
+        )
 
         # embed inputs
         prefix_token_embeddings, prefix_mask, prefix_ar_mask = self.embed_inputs(observation)
@@ -245,7 +252,8 @@ class Pi0FAST(_model.BaseModel):
 
         # left to right align all input token sequences
         prefix_token_embeddings, prefix_mask, prefix_attn_mask = left_to_right_align(
-            prefix_token_embeddings, prefix_mask, prefix_attn_mask)
+            prefix_token_embeddings, prefix_mask, prefix_attn_mask
+        )
         prefill_size = prefix_token_embeddings.shape[1]
         prefill_len = jnp.sum(prefix_mask, axis=-1)
         prefix_start = prefill_size - prefill_len
@@ -254,24 +262,26 @@ class Pi0FAST(_model.BaseModel):
         # pad attention mask to set the size of the KV cache (prefill_size + max_decoding_steps)
         prefix_attn_mask = jnp.pad(prefix_attn_mask, ((0, 0), (0, 0), (0, max_decoding_steps)))
         prefix_positions = jnp.cumsum(prefix_mask, axis=-1) - 1
-        prefix_logits, kv_cache, _ = self.PaliGemma.llm(embedded_prefix=prefix_token_embeddings,
-                                                        mask=prefix_attn_mask,
-                                                        positions=prefix_positions,
-                                                        decode=True)
+        prefix_logits, kv_cache, _ = self.PaliGemma.llm(
+            embedded_prefix=prefix_token_embeddings, mask=prefix_attn_mask, positions=prefix_positions, decode=True
+        )
 
         # prepare decoding -- final logit decodes the first token
         last_logit = prefix_logits[:, -1:]
         output_tokens = jnp.zeros((last_logit.shape[0], max_decoding_steps))
 
         def step(carry):
-            last_logit, output_tokens, cache, _, step = carry
+            rng, last_logit, output_tokens, cache, _, step = carry
 
             # Sample token from last logit
-            if temperature > 0.0:
-                last_logit = last_logit / temperature
-                token = jax.random.categorical(rng, last_logit, axis=-1)
-            else:
-                token = jnp.argmax(last_logit, axis=-1)
+            # Split RNG for this step
+            rng, rng_step = jax.random.split(rng)
+            token = jax.lax.cond(
+                temperature > 0.0,
+                lambda _: jax.random.categorical(rng_step, last_logit / temperature, axis=-1),
+                lambda _: jnp.argmax(last_logit, axis=-1),
+                operand=None,
+            )
             output_tokens = put_along_last_axis(output_tokens, jnp.broadcast_to(step, (token.shape[0], 1)), token)
 
             # Check for early stopping --> stop if all batch elements have EOS token
@@ -286,18 +296,18 @@ class Pi0FAST(_model.BaseModel):
                 jnp.arange(prefill_size + max_decoding_steps)[None, None, :]
                 < (jnp.broadcast_to(prefill_size + step + 1, (prefix_start.shape[0], 1, 1))),
             )
-            last_logit, kv_cache, _ = self.PaliGemma.llm(embedded_prefix=token_embedding,
-                                                         mask=mask,
-                                                         positions=positions,
-                                                         decode=True,
-                                                         kv_cache=cache)
+            last_logit, kv_cache, _ = self.PaliGemma.llm(
+                embedded_prefix=token_embedding, mask=mask, positions=positions, decode=True, kv_cache=cache
+            )
 
-            return last_logit, output_tokens, kv_cache, all_eos, step + 1
+            return rng, last_logit, output_tokens, kv_cache, all_eos, step + 1
 
         def cond(carry):
-            _, _, _, all_eos, step = carry
+            _, _, _, _, all_eos, step = carry
             return (~all_eos) & (step < max_decoding_steps)
 
         # Use lax.while_loop so we can jit the full decoding loop.
-        _, output_tokens, _, _, _ = jax.lax.while_loop(cond, step, (last_logit, output_tokens, kv_cache, False, 0))
+        _, _, output_tokens, _, _, _ = jax.lax.while_loop(
+            cond, step, (rng, last_logit, output_tokens, kv_cache, False, 0)
+        )
         return output_tokens

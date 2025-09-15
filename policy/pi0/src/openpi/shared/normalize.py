@@ -32,10 +32,9 @@ class RunningStats:
         Update the running statistics with a batch of vectors.
 
         Args:
-            vectors (np.ndarray): A 2D array where each row is a new vector.
+            vectors (np.ndarray): An array where all dimensions except the last are batch dimensions.
         """
-        if batch.ndim == 1:
-            batch = batch.reshape(-1, 1)
+        batch = batch.reshape(-1, batch.shape[-1])
         num_elements, vector_length = batch.shape
         if self._count == 0:
             self._mean = np.mean(batch, axis=0)
@@ -44,11 +43,8 @@ class RunningStats:
             self._max = np.max(batch, axis=0)
             self._histograms = [np.zeros(self._num_quantile_bins) for _ in range(vector_length)]
             self._bin_edges = [
-                np.linspace(
-                    self._min[i] - 1e-10,
-                    self._max[i] + 1e-10,
-                    self._num_quantile_bins + 1,
-                ) for i in range(vector_length)
+                np.linspace(self._min[i] - 1e-10, self._max[i] + 1e-10, self._num_quantile_bins + 1)
+                for i in range(vector_length)
             ]
         else:
             if vector_length != self._mean.size:

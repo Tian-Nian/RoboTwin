@@ -9,9 +9,7 @@ import openpi.shared.array_typing as at
 
 @runtime_checkable
 class LRScheduleConfig(Protocol):
-
-    def create(self) -> optax.Schedule:
-        ...
+    def create(self) -> optax.Schedule: ...
 
 
 @dataclasses.dataclass(frozen=True)
@@ -57,13 +55,11 @@ class RsqrtDecaySchedule(LRScheduleConfig):
 
 @runtime_checkable
 class OptimizerConfig(Protocol):
-
     def create(
         self,
         lr: optax.ScalarOrSchedule,
         weight_decay_mask: at.PyTree | None = None,
-    ) -> optax.GradientTransformation:
-        ...
+    ) -> optax.GradientTransformation: ...
 
 
 @dataclasses.dataclass(frozen=True)
@@ -73,6 +69,7 @@ class AdamW(OptimizerConfig):
     b1: float = 0.9
     b2: float = 0.95
     eps: float = 1e-8
+    # Changing this to 0 can cause out-of-memory errors for some reason, so we set it to a negligible value.
     weight_decay: float = 1e-10
     clip_gradient_norm: float = 1.0
 
@@ -82,12 +79,7 @@ class AdamW(OptimizerConfig):
         weight_decay_mask: at.PyTree | None = None,
     ) -> optax.GradientTransformation:
         tx = optax.adamw(
-            lr,
-            b1=self.b1,
-            b2=self.b2,
-            eps=self.eps,
-            weight_decay=self.weight_decay,
-            mask=weight_decay_mask,
+            lr, b1=self.b1, b2=self.b2, eps=self.eps, weight_decay=self.weight_decay, mask=weight_decay_mask
         )
 
         return optax.chain(optax.clip_by_global_norm(self.clip_gradient_norm), tx)
@@ -111,9 +103,7 @@ class SGD(OptimizerConfig):
 
 
 def create_optimizer(
-    optimizer: OptimizerConfig,
-    lr_schedule: LRScheduleConfig,
-    weight_decay_mask: at.PyTree | None = None,
+    optimizer: OptimizerConfig, lr_schedule: LRScheduleConfig, weight_decay_mask: at.PyTree | None = None
 ) -> optax.GradientTransformation:
     lr = lr_schedule.create()
     return optimizer.create(lr, weight_decay_mask=weight_decay_mask)

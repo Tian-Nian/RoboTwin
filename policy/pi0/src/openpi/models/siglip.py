@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """A refactored and simplified ViT adoptation for Pi, taken from big_vision."""
 
 from collections.abc import Sequence
@@ -126,16 +127,13 @@ class Encoder(nn.Module):
             block = nn.remat(
                 Encoder1DBlock,
                 prevent_cse=False,
-                static_argnums=(2, ),  # 0=self, 2=deterministic
+                static_argnums=(2,),  # 0=self, 2=deterministic
                 policy=getattr(jax.checkpoint_policies, self.remat_policy, None),
             )
             x, scan_out = nn.scan(
                 block,
                 variable_axes={"params": 0},
-                split_rngs={
-                    "params": True,
-                    "dropout": True
-                },
+                split_rngs={"params": True, "dropout": True},
                 in_axes=nn.broadcast,
                 length=self.depth,
             )(

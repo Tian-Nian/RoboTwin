@@ -85,7 +85,8 @@ class MlpBlock(nn.Module):
             kernel_init=self.kernel_init,
             bias_init=self.bias_init,
         )(  # pytype: disable=wrong-arg-types
-            inputs)
+            inputs
+        )
         x = nn.gelu(x)
         x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=deterministic)
         output = nn.Dense(
@@ -95,7 +96,8 @@ class MlpBlock(nn.Module):
             kernel_init=self.kernel_init,
             bias_init=self.bias_init,
         )(  # pytype: disable=wrong-arg-types
-            x)
+            x
+        )
         return nn.Dropout(rate=self.dropout_rate)(output, deterministic=deterministic)
 
 
@@ -148,8 +150,9 @@ class Encoder1DBlock(nn.Module):
 
         # MLP block.
         y = nn.LayerNorm(dtype=self.dtype)(x)
-        y = MlpBlock(mlp_dim=self.mlp_dim, dtype=self.dtype,
-                     dropout_rate=self.dropout_rate)(y, deterministic=deterministic)
+        y = MlpBlock(mlp_dim=self.mlp_dim, dtype=self.dtype, dropout_rate=self.dropout_rate)(
+            y, deterministic=deterministic
+        )
 
         return x + y, None
 
@@ -195,14 +198,11 @@ class Encoder(nn.Module):
 
         x = x.astype(self.dtype)
         # Input Encoder
-        block = nn.remat(Encoder1DBlock, prevent_cse=False, static_argnums=(2, ))
+        block = nn.remat(Encoder1DBlock, prevent_cse=False, static_argnums=(2,))
         x, _ = nn.scan(
             block,
             variable_axes={"params": 0},
-            split_rngs={
-                "params": True,
-                "dropout": True
-            },
+            split_rngs={"params": True, "dropout": True},
             in_axes=nn.broadcast,
             length=self.num_layers,
         )(
@@ -239,26 +239,22 @@ class VisionTransformer(nn.Module):
             width = int(64 * self.resnet.width_factor)
 
             # Root block.
-            x = models_resnet.StdConv(features=width,
-                                      kernel_size=(7, 7),
-                                      strides=(2, 2),
-                                      use_bias=False,
-                                      name="conv_root")(x)
+            x = models_resnet.StdConv(
+                features=width, kernel_size=(7, 7), strides=(2, 2), use_bias=False, name="conv_root"
+            )(x)
             x = nn.GroupNorm(name="gn_root")(x)
             x = nn.relu(x)
             x = nn.max_pool(x, window_shape=(3, 3), strides=(2, 2), padding="SAME")
 
             # ResNet stages.
             if self.resnet.num_layers:
-                x = models_resnet.ResNetStage(block_size=self.resnet.num_layers[0],
-                                              nout=width,
-                                              first_stride=(1, 1),
-                                              name="block1")(x)
+                x = models_resnet.ResNetStage(
+                    block_size=self.resnet.num_layers[0], nout=width, first_stride=(1, 1), name="block1"
+                )(x)
                 for i, block_size in enumerate(self.resnet.num_layers[1:], 1):
-                    x = models_resnet.ResNetStage(block_size=block_size,
-                                                  nout=width * 2**i,
-                                                  first_stride=(2, 2),
-                                                  name=f"block{i + 1}")(x)
+                    x = models_resnet.ResNetStage(
+                        block_size=block_size, nout=width * 2**i, first_stride=(2, 2), name=f"block{i + 1}"
+                    )(x)
 
         n, h, w, c = x.shape
 
