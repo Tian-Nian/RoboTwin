@@ -58,20 +58,20 @@ class Args:
 # Default checkpoints that should be used for each environment.
 DEFAULT_CHECKPOINT: dict[EnvMode, Checkpoint] = {
     EnvMode.ALOHA: Checkpoint(
-        config="pi0_aloha",
-        dir="s3://openpi-assets/checkpoints/pi0_base",
+        config="pi05_aloha",
+        dir="gs://openpi-assets/checkpoints/pi05_base",
     ),
     EnvMode.ALOHA_SIM: Checkpoint(
         config="pi0_aloha_sim",
-        dir="s3://openpi-assets/checkpoints/pi0_aloha_sim",
+        dir="gs://openpi-assets/checkpoints/pi0_aloha_sim",
     ),
     EnvMode.DROID: Checkpoint(
-        config="pi0_fast_droid",
-        dir="s3://openpi-assets/checkpoints/pi0_fast_droid",
+        config="pi05_droid",
+        dir="gs://openpi-assets/checkpoints/pi05_droid",
     ),
     EnvMode.LIBERO: Checkpoint(
-        config="pi0_fast_libero",
-        dir="s3://openpi-assets/checkpoints/pi0_fast_libero",
+        config="pi05_libero",
+        dir="gs://openpi-assets/checkpoints/pi05_libero",
     ),
 }
 
@@ -80,9 +80,7 @@ def create_default_policy(env: EnvMode, *, default_prompt: str | None = None) ->
     """Create a default policy for the given environment."""
     if checkpoint := DEFAULT_CHECKPOINT.get(env):
         return _policy_config.create_trained_policy(
-            _config.get_config(checkpoint.config),
-            checkpoint.dir,
-            default_prompt=default_prompt,
+            _config.get_config(checkpoint.config), checkpoint.dir, default_prompt=default_prompt
         )
     raise ValueError(f"Unsupported environment mode: {env}")
 
@@ -92,9 +90,7 @@ def create_policy(args: Args) -> _policy.Policy:
     match args.policy:
         case Checkpoint():
             return _policy_config.create_trained_policy(
-                _config.get_config(args.policy.config),
-                args.policy.dir,
-                default_prompt=args.default_prompt,
+                _config.get_config(args.policy.config), args.policy.dir, default_prompt=args.default_prompt
             )
         case Default():
             return create_default_policy(args.env, default_prompt=args.default_prompt)
