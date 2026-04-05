@@ -167,7 +167,7 @@ if __name__ == "__main__":
     setting = args.setting
     expert_data_num = args.expert_data_num
 
-    load_dir = os.path.join("../../../data", str(task_name), str(setting))
+    load_dir = os.path.join("../../data", str(task_name), str(setting))
 
     begin = 0
     print(f'read data from path:{os.path.join("data", load_dir)}')
